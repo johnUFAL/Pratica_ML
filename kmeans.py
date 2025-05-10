@@ -4,6 +4,7 @@ import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
+from sklearn.metrics import silhouette_score
 
 #dados 
 path = 'RTVue_20221110.xlsx'
@@ -30,24 +31,28 @@ df.drop('Eye', axis=1, inplace=True)
 
 #normalizando os dados 
 cols_espessura = ['C', 'S', 'ST', 'T', 'IT', 'I', 'IN', 'N', 'SN']
-x = df[cols_espessura]
+x = df[cols_espessura].copy()
 escala = StandardScaler()
 dados_normalizados = escala.fit_transform(x)
 df[cols_espessura] = dados_normalizados
 
-#metodo cotovelo para k
-inercia = []
-k_raio = range(1, 31)
+#armazenar os scores
+silhouette_scores = []
 
-for k in k_raio:
+#testes de k ate 30
+for k in range(2, 31):
     kmeans = KMeans(n_clusters=k, random_state=42)
-    kmeans.fit(dados_normalizados)
-    inercia.append(kmeans.inertia_)
+    labels = kmeans.fit_predict(dados_normalizados)
+    score = silhouette_score(dados_normalizados, labels)
+    silhouette_scores.append(score)
+    print(f"k={k}: Silhouette Score = {score:.3f}")
 
-plt.figure(figsize=(8, 6))
-plt.plot(k_raio, inercia, marker='o')
-plt.xlabel('Num Clusters (k)')
-plt.ylabel('Inercia')
-plt.title('Cotovelo')
+#plot
+plt.figure(figsize=(8, 4))
+plt.plot(range(2, 31), silhouette_scores, marker='o', color='teal')
+plt.xlabel('Número de Clusters (k)')
+plt.ylabel('Silhouette Score')
+plt.title('Silhouette Score para Determinar k Ideal')
 plt.grid(True)
 plt.show()
+
