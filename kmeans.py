@@ -1,58 +1,90 @@
+# PASSO 1: Configuração inicial
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
-from sklearn.preprocessing import OneHotEncoder, LabelEncoder
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 from sklearn.metrics import silhouette_score
 
-#dados 
+#dados
 path = 'RTVue_20221110.xlsx'
 df = pd.read_excel(path)
 
-#como ha dados faltantes, usar media, porem por genero
-media_genero = df.groupby('Gender')[['C', 'S', 'ST', 'T', 'IT',
-                                     'I', 'IN', 'N', 'SN']].mean()
+#media por genero valor que falta
+cols_espessura = ['C', 'S', 'ST', 'T', 'IT', 'I', 'IN', 'N', 'SN']
+media_genero = df.groupby('Gender')[cols_espessura].mean()
 
-for colunas in ['C', 'S', 'ST', 'T', 'IT', 'I', 'IN', 'N', 'SN']:
-    df[colunas] = df.apply(
-        lambda row: media_genero.loc[row['Gender'], colunas]
-        if pd.isnull(row[colunas]) else row[colunas],
-        axis = 1
+for col in cols_espessura:
+    df[col] = df.apply(
+        lambda row: media_genero.loc[row['Gender'], col] if pd.isnull(row[col]) else row[col],
+        axis=1
     )
 
-#tratamento de dados categoricos
-##label pra gender (M=1, F=0)
-df['Gender'] = LabelEncoder().fit_transform(df['Gender'])
-encoder = OneHotEncoder(sparse_output=False, drop='first')
-eye_encoded = encoder.fit_transform(df[['Eye']])
-df['Eye_OD'] = eye_encoded[:, 0] #OD=1, OS=0
-df.drop('Eye', axis=1, inplace=True)
+#tratando outliers
+z_scores = np.abs((df[cols_espessura] - df[cols_espessura].mean()) / df[cols_espessura].std())
+df = df[(z_scores < 3).all(axis=1)].copy()
 
-#normalizando os dados 
-cols_espessura = ['C', 'S', 'ST', 'T', 'IT', 'I', 'IN', 'N', 'SN']
-x = df[cols_espessura].copy()
-escala = StandardScaler()
-dados_normalizados = escala.fit_transform(x)
-df[cols_espessura] = dados_normalizados
+#normalizando
+scaler = StandardScaler()
+df[cols_espessura] = scaler.fit_transform(df[cols_espessura])
 
-#armazenar os scores
-silhouette_scores = []
+#k=4
+kmeans = KMeans(n_clusters=4, init='k-means++', n_init=10, random_state=42)
+df['Cluster'] = kmeans.fit_predict(df[cols_espessura])
 
-#testes de k ate 30
-for k in range(2, 31):
-    kmeans = KMeans(n_clusters=k, random_state=42)
-    labels = kmeans.fit_predict(dados_normalizados)
-    score = silhouette_score(dados_normalizados, labels)
-    silhouette_scores.append(score)
-    print(f"k={k}: Silhouette Score = {score:.3f}")
+#vizualizacao
+def plot_clusters(features, title):
+    plt.figure(figsize=(10, 6))
+    for cluster in sorted(df['Cluster'].unique()):
+        cluster_data = features[df['Cluster'] == cluster]
+        plt.scatter(cluster_data[:, 0], cluster_data[:, 1], 
+                   label=f'Cluster {cluster}', alpha=0.6)
+    plt.xlabel('Componente 1')
+    plt.ylabel('Componente 2')
+    plt.title(title)
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
-#plot
-plt.figure(figsize=(8, 4))
-plt.plot(range(2, 31), silhouette_scores, marker='o', color='teal')
-plt.xlabel('Número de Clusters (k)')
-plt.ylabel('Silhouette Score')
-plt.title('Silhouette Score para Determinar k Ideal')
-plt.grid(True)
+#PCA
+pca = PCA(n_components=2)
+pca_features = pca.fit_transform(df[cols_espessura])
+plot_clusters(pca_features, 'Clusters visualizados com PCA')
+
+#TSNE
+tsne = TSNE(n_components=2, random_state=42, perplexity=30)
+tsne_features = tsne.fit_transform(df[cols_espessura])
+plot_clusters(tsne_features, 'Clusters visualizados com t-SNE')
+
+#analise
+print("\nTamanho de cada cluster:")
+print(df['Cluster'].value_counts().sort_index())
+
+print("\nCaracteristicas medias por cluster:")
+cluster_means = df.groupby('Cluster')[cols_espessura].mean()
+print(cluster_means)
+
+#Heatmap
+plt.figure(figsize=(12, 6))
+sns.heatmap(cluster_means.T, cmap='YlGnBu', annot=True, fmt=".2f", linewidths=.5)
+plt.title('Méedias Normalizadas das Características por Cluster')
 plt.show()
 
+#vendo qualidade 
+silhouette = silhouette_score(df[cols_espessura], df['Cluster'])
+print(f"\nSilhouette Score para k=4: {silhouette:.3f}")
+
+#interpretaçao, pode ser melhor com mais k 
+interpretation = {
+    0: "Perfil com valores medios",
+    1: "Perfil com valores abaixo da media",
+    2: "Perfil com valores acima da media", 
+    3: "Perfil com padrao misto/distinto"
+}
+
+print("\nInterpretação sugerida dos clusters:")
+for cluster, desc in interpretation.items():
+    print(f"Cluster {cluster}: {desc}")
